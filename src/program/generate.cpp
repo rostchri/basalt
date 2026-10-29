@@ -6808,12 +6808,18 @@ int main(int argc, char** argv) {
                 const int b = rows[sg];
                 BSlot& sl = bs[(size_t) b];
                 const int k = n_keep[sg];
-                std::printf("BT %d", b);   // one line per slot and window: every token it kept
+                // one line per slot and window: every token it kept. Assembled whole and printed in ONE
+                // printf: a line reaches stdout atomically (glibc locks a call), while another thread's
+                // printf+fflush -- the PL progress callback -- flushing a half-built "BT 1 28" would glue
+                // "PL" onto the last field and the server's line reader would parse "283PL" as an int.
+                std::string bt_line = "BT " + std::to_string(b);
                 for (int e = 0; e < k; ++e) {
                     sl.ids.push_back(tok[r0s[sg] + e]);    // the window fed it: the slot's sessions hold it now
-                    std::printf(" %d", (int) outb[r0s[sg] + e]);
+                    bt_line += ' ';
+                    bt_line += std::to_string((int) outb[r0s[sg] + e]);
                 }
-                std::printf("\n");
+                bt_line += '\n';
+                std::printf("%s", bt_line.c_str());
                 sl.produced += k;
                 if (real) {   // the window's verdict on its drafts: the draft-length rule, the lookup history, the policy
                     const int a = k - 1, Tw = lens[sg];
@@ -6834,9 +6840,16 @@ int main(int argc, char** argv) {
                 if (bdigest) {
                     uint64_t part[10] = {};
                     slot_digest(b, sl.p + k, part);
-                    std::printf("BDIG %d %lld", b, (long long) (sl.p + k));
-                    for (int i = 0; i < 10; ++i) std::printf("%c%llx", i == 0 ? ' ' : ',', (unsigned long long) part[i]);
-                    std::printf("\n");
+                    {   // one printf per protocol line, as with BT above
+                        std::string dig = "BDIG " + std::to_string(b) + " " + std::to_string((long long) (sl.p + k));
+                        char hex[32];
+                        for (int i = 0; i < 10; ++i) {
+                            std::snprintf(hex, sizeof hex, i == 0 ? " %llx" : ",%llx", (unsigned long long) part[i]);
+                            dig += hex;
+                        }
+                        dig += '\n';
+                        std::printf("%s", dig.c_str());
+                    }
                 }
                 if (fin_of[sg] != nullptr) {
                     const double ms = std::chrono::duration<double, std::milli>(Clock::now() - sl.t0).count();

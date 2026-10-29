@@ -820,6 +820,17 @@ class ProcessEngine:
             carry[0] += last["drafts_accepted"]
             carry[1] += last["drafts_offered"]
 
+    @staticmethod
+    def _fields_or_raise(kind: str, line: str) -> list[int]:
+        """The int fields of a protocol line's payload, or a named protocol error naming the raw line.
+        A bare ValueError here reads like the engine's own refusal ("engine reported invalid literal ...")
+        and hides that a stdout line arrived glued together; `kind` and the raw text say what happened."""
+        fields = line.split()[2:]
+        try:
+            return [int(x) for x in fields]
+        except ValueError:
+            raise ValueError(f"corrupt {kind} line from the engine (two stdout writes interleaved?): {line!r}") from None
+
     def _note_live(self, line: str):
         """A `PL <position> <total> <ms> <tok/s>` line: the display's position and speed inside a chunk."""
         f = line.split()
@@ -1111,7 +1122,7 @@ class ProcessEngine:
                         raise EngineDied(f"the engine stopped unexpectedly (exit code {self.exit_code()})")
                     if line.startswith("BT "):
                         self._count_window(len(line.split()) - 2)
-                        for t in (int(x) for x in line.split()[2:]):    # a window's tokens for this slot, in order
+                        for t in (int(x) for x in self._fields_or_raise("BT", line)):    # tokens for this slot
                             out.append(t)
                             if cancel.is_set():
                                 if not stop_sent:
